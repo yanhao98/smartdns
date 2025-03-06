@@ -1,4 +1,4 @@
-FROM ubuntu:latest as smartdns-builder
+FROM ubuntu:latest AS smartdns-builder
 LABEL previous-stage=smartdns-builder
 
 # prepare builder
