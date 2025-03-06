@@ -1,8 +1,8 @@
-FROM ubuntu:latest as smartdns-builder
+FROM ubuntu:latest AS smartdns-builder
 LABEL previous-stage=smartdns-builder
 
 # prepare builder
-ARG OPENSSL_VER=3.0.10
+ARG OPENSSL_VER=3.4.1
 RUN apt update && \
     apt install -y binutils perl curl make musl-tools musl-dev && \
     ln -s /usr/include/linux /usr/include/$(uname -m)-linux-musl && \
