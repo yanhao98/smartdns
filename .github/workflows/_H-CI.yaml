@@ -141,3 +141,17 @@ jobs:
           path: webui-www
 
       - run: ls -l -R .
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          file: Dockerfile
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ github.event.inputs.version || 'latest' }}
+          build-args: |
+            WEBUI_PATH=./webui-www
+            RELEASE_DIR=./release/smartdns-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ github.workflow }}
+          cache-to: type=gha,scope=${{ github.workflow }},mode=max
