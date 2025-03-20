@@ -1,0 +1,164 @@
+on:
+  push:
+
+env:
+  OPENSSL_VER: 3.0.16
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86-64, arm64]
+    steps:
+    - uses: actions/checkout@main
+
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential pkg-config libssl-dev
+        if [ "${{ matrix.arch }}" = "arm64" ]; then
+          sudo apt install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          sudo apt install -y libclang-dev llvm-dev clang
+        fi
+
+    # - name: Install Rust
+    #   uses: actions-rust-lang/setup-rust-toolchain@v1
+    #   with:
+    #     cache: true
+    #     cache-workspaces: |-
+    #       ./plugin/smartdns-ui
+
+    - name: Setup Rust
+      run: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source "$HOME/.cargo/env"
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        
+        # 针对 arm64 的额外交叉编译配置
+        if [ "${{ matrix.arch }}" = "arm64" ]; then
+          rustup target add aarch64-unknown-linux-gnu
+          
+          # 为 Cargo 创建交叉编译配置
+          mkdir -p ~/.cargo
+          cat > ~/.cargo/config.toml << EOF
+        [target.aarch64-unknown-linux-gnu]
+        linker = "aarch64-linux-gnu-gcc"
+        
+        [build]
+        target = "aarch64-unknown-linux-gnu"
+        EOF
+          
+          echo "LIBCLANG_PATH=$(dirname $(find /usr -name libclang.so* | head -n 1))" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+        fi
+
+    - name: Cache OpenSSL
+      uses: actions/cache@v4
+      with:
+        path: /tmp/build/openssl
+        key: ${{ runner.os }}-openssl-${{ env.OPENSSL_VER }}-${{ matrix.arch }}
+        restore-keys: |
+          ${{ runner.os }}-openssl-${{ matrix.arch }}-
+
+    - name: Build OpenSSL for ARM64
+      if: matrix.arch == 'arm64'
+      run: |
+        OPENSSL_VER=${{ env.OPENSSL_VER }}
+        mkdir -p /tmp/build/openssl
+        cd /tmp/build/openssl
+        curl -sSL https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VER}/openssl-${OPENSSL_VER}.tar.gz | tar --strip-components=1 -zx
+
+        # 设置完整的交叉编译环境
+        export CC=aarch64-linux-gnu-gcc
+        export CXX=aarch64-linux-gnu-g++
+        export AR=aarch64-linux-gnu-ar
+        export RANLIB=aarch64-linux-gnu-ranlib
+        export LD=aarch64-linux-gnu-ld
+        export CROSS_COMPILE=aarch64-linux-gnu-
+
+        
+        # 确保使用正确的配置选项
+        ./Configure --prefix=/tmp/opt/build no-tests linux-aarch64 -DOPENSSL_NO_DEPRECATED
+
+        # 构建并安装
+        make clean  # 确保没有残留文件
+        make all -j$(nproc)
+        make install_sw
+        
+        echo "CFLAGS=-I /tmp/opt/build/include" >> $GITHUB_ENV
+        echo "LDFLAGS=-L /tmp/opt/build/lib -L /tmp/opt/build/lib64" >> $GITHUB_ENV
+
+    - name: Build SmartDNS (ARM64)
+      if: matrix.arch == 'arm64'
+      run: |
+        # 静态链接版本
+        # sh ./package/build-pkg.sh --platform linux --arch arm64 --cross-tool aarch64-linux-gnu- --static
+
+        # plugin/smartdns-ui/Makefile
+        # CARGO_BUILD_PATH=target/
+        # CARGO_BUILD_PATH=target/aarch64-unknown-linux-gnu/
+        sed -i 's|CARGO_BUILD_PATH=target/|CARGO_BUILD_PATH=target/aarch64-unknown-linux-gnu/|' plugin/smartdns-ui/Makefile
+
+        # 带 UI 的版本
+        make all WITH_UI=1
+
+    - name: Build OpenSSL for x86-64
+      if: matrix.arch == 'x86-64'
+      run: |
+        OPENSSL_VER=3.0.16
+        mkdir -p /tmp/build/openssl
+        cd /tmp/build/openssl
+        curl -sSL https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VER}/openssl-${OPENSSL_VER}.tar.gz | tar --strip-components=1 -zx
+        ./Configure --prefix=/tmp/opt/build no-tests linux-x86_64
+        make all -j$(nproc)
+        make install_sw
+        
+        echo "CFLAGS=-I /tmp/opt/build/include" >> $GITHUB_ENV
+        echo "LDFLAGS=-L /tmp/opt/build/lib -L /tmp/opt/build/lib64" >> $GITHUB_ENV
+
+    - name: Build SmartDNS (x86-64)
+      if: matrix.arch == 'x86-64'
+      run: |
+        make all WITH_UI=1
+
+    - name: Prepare artifacts
+      run: |
+        mkdir -p ./release/var/log ./release/run ./release/usr/lib/smartdns
+        make install DESTDIR=./release
+    - name: Archive artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: smartdns-${{ matrix.arch }}
+        path: ./release
+
+    - name: Do Something
+      run: |
+        chmod +x ./release/usr/sbin/smartdns
+        ./release/usr/sbin/smartdns -v || true
+        file ./release/usr/sbin/smartdns
+  down-build:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@main
+
+      - name: Download artifact
+        uses: dawidd6/action-download-artifact@v9
+        with:
+          run_id: ${{ github.run_id }}
+          path: release
+
+      - uses: dawidd6/action-download-artifact@v9
+        with:
+          repo: ${{ github.repository_owner }}/smartdns-webui
+          name: artifact-H
+          workflow_search: true
+          path: webui-www
+
+      - run: ls -l -R .
