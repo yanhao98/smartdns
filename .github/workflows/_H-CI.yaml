@@ -66,47 +66,36 @@ jobs:
     #     restore-keys: |
     #       ${{ runner.os }}-openssl-${{ matrix.arch }}-
 
-    - name: Build OpenSSL for x86_64
-      if: matrix.arch == 'x86_64'
-      run: |
-        OPENSSL_VER=3.0.16
-        mkdir -p /tmp/build/openssl
-        cd /tmp/build/openssl
-        curl -sSL https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VER}/openssl-${OPENSSL_VER}.tar.gz | tar --strip-components=1 -zx
-        ./Configure --prefix=/tmp/opt/build no-tests linux-x86_64
-        make all -j$(nproc)
-        make install_sw
-        
-        echo "CFLAGS=-I /tmp/opt/build/include" >> $GITHUB_ENV
-        echo "LDFLAGS=-L /tmp/opt/build/lib -L /tmp/opt/build/lib64" >> $GITHUB_ENV
-
-    - name: Build OpenSSL for ARM64
-      if: matrix.arch == 'arm64'
+    - name: Build OpenSSL
       run: |
         OPENSSL_VER=${{ env.OPENSSL_VER }}
         mkdir -p /tmp/build/openssl
         cd /tmp/build/openssl
         curl -sSL https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VER}/openssl-${OPENSSL_VER}.tar.gz | tar --strip-components=1 -zx
-
-        # 设置完整的交叉编译环境
-        export CC=aarch64-linux-gnu-gcc
-        export CXX=aarch64-linux-gnu-g++
-        export AR=aarch64-linux-gnu-ar
-        export RANLIB=aarch64-linux-gnu-ranlib
-        export LD=aarch64-linux-gnu-ld
-        export CROSS_COMPILE=aarch64-linux-gnu-
-
         
-        # 确保使用正确的配置选项
-        ./Configure --prefix=/tmp/opt/build no-tests linux-aarch64 -DOPENSSL_NO_DEPRECATED
-
+        if [ "${{ matrix.arch }}" = "arm64" ]; then
+          # 设置ARM64交叉编译环境
+          export CC=aarch64-linux-gnu-gcc
+          # export CXX=aarch64-linux-gnu-g++
+          # export AR=aarch64-linux-gnu-ar
+          # export RANLIB=aarch64-linux-gnu-ranlib
+          # export LD=aarch64-linux-gnu-ld
+          # export CROSS_COMPILE=aarch64-linux-gnu-
+          
+          # ARM64配置
+          ./Configure --prefix=${OPENSSL_PREFIX} no-tests linux-aarch64
+        else
+          # x86_64配置
+          ./Configure --prefix=${OPENSSL_PREFIX} no-tests linux-x86_64
+        fi
+        
         # 构建并安装
-        make clean  # 确保没有残留文件
+        # make clean  # 确保没有残留文件
         make all -j$(nproc)
         make install_sw
         
-        echo "CFLAGS=-I /tmp/opt/build/include" >> $GITHUB_ENV
-        echo "LDFLAGS=-L /tmp/opt/build/lib -L /tmp/opt/build/lib64" >> $GITHUB_ENV
+        echo "CFLAGS=-I ${OPENSSL_PREFIX}/include" >> $GITHUB_ENV
+        echo "LDFLAGS=-L ${OPENSSL_PREFIX}/lib -L ${OPENSSL_PREFIX}/lib64" >> $GITHUB_ENV
 
     - name: Build SmartDNS (x86_64)
       if: matrix.arch == 'x86_64'
