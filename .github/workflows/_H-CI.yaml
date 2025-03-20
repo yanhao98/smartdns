@@ -3,6 +3,7 @@ on:
 
 env:
   OPENSSL_VER: 3.0.16
+  OPENSSL_PREFIX: /tmp/opt/build
 
 jobs:
   build:
@@ -57,13 +58,27 @@ jobs:
           echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
         fi
 
-    - name: Cache OpenSSL
-      uses: actions/cache@v4
-      with:
-        path: /tmp/build/openssl
-        key: ${{ runner.os }}-openssl-${{ env.OPENSSL_VER }}-${{ matrix.arch }}
-        restore-keys: |
-          ${{ runner.os }}-openssl-${{ matrix.arch }}-
+    # - name: Cache OpenSSL
+    #   uses: actions/cache@v4
+    #   with:
+    #     path: /tmp/build/openssl
+    #     key: ${{ runner.os }}-openssl-${{ env.OPENSSL_VER }}-${{ matrix.arch }}
+    #     restore-keys: |
+    #       ${{ runner.os }}-openssl-${{ matrix.arch }}-
+
+    - name: Build OpenSSL for x86_64
+      if: matrix.arch == 'x86_64'
+      run: |
+        OPENSSL_VER=3.0.16
+        mkdir -p /tmp/build/openssl
+        cd /tmp/build/openssl
+        curl -sSL https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VER}/openssl-${OPENSSL_VER}.tar.gz | tar --strip-components=1 -zx
+        ./Configure --prefix=/tmp/opt/build no-tests linux-x86_64
+        make all -j$(nproc)
+        make install_sw
+        
+        echo "CFLAGS=-I /tmp/opt/build/include" >> $GITHUB_ENV
+        echo "LDFLAGS=-L /tmp/opt/build/lib -L /tmp/opt/build/lib64" >> $GITHUB_ENV
 
     - name: Build OpenSSL for ARM64
       if: matrix.arch == 'arm64'
@@ -93,6 +108,11 @@ jobs:
         echo "CFLAGS=-I /tmp/opt/build/include" >> $GITHUB_ENV
         echo "LDFLAGS=-L /tmp/opt/build/lib -L /tmp/opt/build/lib64" >> $GITHUB_ENV
 
+    - name: Build SmartDNS (x86_64)
+      if: matrix.arch == 'x86_64'
+      run: |
+        make all WITH_UI=1
+
     - name: Build SmartDNS (ARM64)
       if: matrix.arch == 'arm64'
       run: |
@@ -105,25 +125,6 @@ jobs:
         sed -i 's|CARGO_BUILD_PATH=target/|CARGO_BUILD_PATH=target/aarch64-unknown-linux-gnu/|' plugin/smartdns-ui/Makefile
 
         # 带 UI 的版本
-        make all WITH_UI=1
-
-    - name: Build OpenSSL for x86_64
-      if: matrix.arch == 'x86_64'
-      run: |
-        OPENSSL_VER=3.0.16
-        mkdir -p /tmp/build/openssl
-        cd /tmp/build/openssl
-        curl -sSL https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VER}/openssl-${OPENSSL_VER}.tar.gz | tar --strip-components=1 -zx
-        ./Configure --prefix=/tmp/opt/build no-tests linux-x86_64
-        make all -j$(nproc)
-        make install_sw
-        
-        echo "CFLAGS=-I /tmp/opt/build/include" >> $GITHUB_ENV
-        echo "LDFLAGS=-L /tmp/opt/build/lib -L /tmp/opt/build/lib64" >> $GITHUB_ENV
-
-    - name: Build SmartDNS (x86_64)
-      if: matrix.arch == 'x86_64'
-      run: |
         make all WITH_UI=1
 
     - name: Prepare artifacts
