@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x86-64, arm64]
+        arch: [x86_64, arm64]
     steps:
     - uses: actions/checkout@main
 
@@ -107,8 +107,8 @@ jobs:
         # 带 UI 的版本
         make all WITH_UI=1
 
-    - name: Build OpenSSL for x86-64
-      if: matrix.arch == 'x86-64'
+    - name: Build OpenSSL for x86_64
+      if: matrix.arch == 'x86_64'
       run: |
         OPENSSL_VER=3.0.16
         mkdir -p /tmp/build/openssl
@@ -121,8 +121,8 @@ jobs:
         echo "CFLAGS=-I /tmp/opt/build/include" >> $GITHUB_ENV
         echo "LDFLAGS=-L /tmp/opt/build/lib -L /tmp/opt/build/lib64" >> $GITHUB_ENV
 
-    - name: Build SmartDNS (x86-64)
-      if: matrix.arch == 'x86-64'
+    - name: Build SmartDNS (x86_64)
+      if: matrix.arch == 'x86_64'
       run: |
         make all WITH_UI=1
 
