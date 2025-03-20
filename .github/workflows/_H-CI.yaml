@@ -76,12 +76,7 @@ jobs:
         if [ "${{ matrix.arch }}" = "arm64" ]; then
           # 设置ARM64交叉编译环境
           export CC=aarch64-linux-gnu-gcc
-          # export CXX=aarch64-linux-gnu-g++
-          # export AR=aarch64-linux-gnu-ar
-          # export RANLIB=aarch64-linux-gnu-ranlib
-          # export LD=aarch64-linux-gnu-ld
-          # export CROSS_COMPILE=aarch64-linux-gnu-
-          
+
           # ARM64配置
           ./Configure --prefix=${OPENSSL_PREFIX} no-tests linux-aarch64
         else
@@ -97,23 +92,17 @@ jobs:
         echo "CFLAGS=-I ${OPENSSL_PREFIX}/include" >> $GITHUB_ENV
         echo "LDFLAGS=-L ${OPENSSL_PREFIX}/lib -L ${OPENSSL_PREFIX}/lib64" >> $GITHUB_ENV
 
-    - name: Build SmartDNS (x86_64)
-      if: matrix.arch == 'x86_64'
+    - name: Build SmartDNS
       run: |
-        make all WITH_UI=1
-
-    - name: Build SmartDNS (ARM64)
-      if: matrix.arch == 'arm64'
-      run: |
-        # 静态链接版本
-        # sh ./package/build-pkg.sh --platform linux --arch arm64 --cross-tool aarch64-linux-gnu- --static
-
-        # plugin/smartdns-ui/Makefile
-        # CARGO_BUILD_PATH=target/
-        # CARGO_BUILD_PATH=target/aarch64-unknown-linux-gnu/
-        sed -i 's|CARGO_BUILD_PATH=target/|CARGO_BUILD_PATH=target/aarch64-unknown-linux-gnu/|' plugin/smartdns-ui/Makefile
-
-        # 带 UI 的版本
+        if [ "${{ matrix.arch }}" = "arm64" ]; then
+          # ARM64 特殊配置
+          # plugin/smartdns-ui/Makefile
+          # CARGO_BUILD_PATH=target/ ->
+          # CARGO_BUILD_PATH=target/aarch64-unknown-linux-gnu/
+          sed -i 's|CARGO_BUILD_PATH=target/|CARGO_BUILD_PATH=target/aarch64-unknown-linux-gnu/|' plugin/smartdns-ui/Makefile
+        fi
+        
+        # 构建带 UI 的版本
         make all WITH_UI=1
 
     - name: Prepare artifacts
