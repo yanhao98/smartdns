@@ -46,10 +46,17 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # sudo apt -qq update
+          # sudo apt -qq install -y binutils perl curl make musl-tools musl-dev
+          # sudo apt -qq install -y build-essential pkg-config libssl-dev
+          # sudo apt -qq install -y libclang-dev llvm-dev clang
+
           sudo apt -qq update
-          sudo apt -qq install -y binutils perl curl make musl-tools musl-dev
-          sudo apt -qq install -y build-essential pkg-config libssl-dev
-          sudo apt -qq install -y libclang-dev llvm-dev clang
+          sudo apt -qq install -y build-essential
+          sudo apt -qq install -y llvm clang libclang-dev
+          
+          # sudo apt -qq install -y gcc-x86-64-linux-gnu g++-x86-64-linux-gnu
+
           if [ "${{ matrix.arch }}" = "arm64" ]; then
             sudo apt -qq install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
           fi
