@@ -137,6 +137,8 @@ jobs:
       - name: Build SmartDNS - plugin/smartdns-ui
         working-directory: plugin/smartdns-ui
         run: |
+          rustup target add ${{ matrix.CARGO_TARGET }}
+
           CARGO_RUSTFLAGS=()
           CARGO_RUSTFLAGS+=("-C linker=${{ matrix.ENV_CC }}")
           # CARGO_RUSTFLAGS+=("-C target-feature=-crt-static")  # 是否使用 musl 库
