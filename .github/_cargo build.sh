@@ -1,3 +1,4 @@
+#!/bin/bash
 sudo apt update
 sudo apt install -y build-essential
 sudo apt install -y gcc-x86-64-linux-gnu g++-x86-64-linux-gnu
