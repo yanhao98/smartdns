@@ -125,10 +125,12 @@ jobs:
       #   with:
       #     toolchain: stable
 
-      - name: Build SmartDNS
+      - name: Build SmartDNS - build-pkg
         run: |
           sh ./package/build-pkg.sh --platform linux --arch ${{ matrix.ARCH }} --cross-tool ${{ matrix.CROSS_TOOL }}
           #  --static
+      - name: Build SmartDNS - make all
+        run: |
           set -x
           make all -j$(nproc) WITH_UI=1
           ls -l -R plugin/smartdns-ui/target/
