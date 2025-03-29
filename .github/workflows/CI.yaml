@@ -131,6 +131,7 @@ jobs:
           #  --static
       - name: Build SmartDNS - make all
         run: |
+          export CARGO_BUILD_ARGS="--target ${{ matrix.CARGO_TARGET }}"
           set -x
           make all -j$(nproc) WITH_UI=1
           ls -l -R plugin/smartdns-ui/target/
