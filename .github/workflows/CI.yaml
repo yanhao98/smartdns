@@ -135,6 +135,7 @@ jobs:
           #  --static
 
       - name: Build SmartDNS - plugin/smartdns-ui
+        working-directory: plugin/smartdns-ui
         run: |
           CARGO_RUSTFLAGS=()
           CARGO_RUSTFLAGS+=("-C linker=x86_64-linux-gnu-gcc") #
