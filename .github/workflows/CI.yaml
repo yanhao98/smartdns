@@ -4,6 +4,10 @@ on:
 env:
   TZ: Asia/Shanghai
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -104,22 +108,22 @@ jobs:
       #     restore-keys: |
       #       smartdns-ui-${{ matrix.CARGO_TARGET }}-
 
-      - name: Setup Rust
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          source "$HOME/.cargo/env"
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          rustup target add ${{ matrix.CARGO_TARGET }}
+      # - name: Setup Rust
+      #   run: |
+      #     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      #     source "$HOME/.cargo/env"
+      #     echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      #     rustup target add ${{ matrix.CARGO_TARGET }}
 
-          # 为 Cargo 创建交叉编译配置
-          mkdir -p ~/.cargo
-          cat > ~/.cargo/config.toml << EOF
-          [target.${{ matrix.CARGO_TARGET }}]
-          linker = "${{ matrix.ENV_CC }}"
+      #     # 为 Cargo 创建交叉编译配置
+      #     mkdir -p ~/.cargo
+      #     cat > ~/.cargo/config.toml << EOF
+      #     [target.${{ matrix.CARGO_TARGET }}]
+      #     linker = "${{ matrix.ENV_CC }}"
 
-          [build]
-          target = "${{ matrix.CARGO_TARGET }}"
-          EOF
+      #     [build]
+      #     target = "${{ matrix.CARGO_TARGET }}"
+      #     EOF
 
       # - uses: actions-rs/toolchain@v1
       #   with:
@@ -129,12 +133,28 @@ jobs:
         run: |
           sh ./package/build-pkg.sh --platform linux --arch ${{ matrix.ARCH }} --cross-tool ${{ matrix.CROSS_TOOL }}
           #  --static
-      - name: Build SmartDNS - make all
+
+      - name: Build SmartDNS - plugin/smartdns-ui
         run: |
-          export CARGO_BUILD_ARGS="--target ${{ matrix.CARGO_TARGET }}"
-          set -x
-          make all -j$(nproc) WITH_UI=1
-          ls -l -R plugin/smartdns-ui/target/
+          CARGO_RUSTFLAGS=()
+          CARGO_RUSTFLAGS+=("-C linker=x86_64-linux-gnu-gcc") #
+          CARGO_RUSTFLAGS+=("-C target-feature=-crt-static")  # 是否使用 musl 库
+
+          CARGO_BUILD_ARGS=()
+          CARGO_BUILD_ARGS+=("--target x86_64-unknown-linux-gnu")
+          CARGO_BUILD_ARGS+=("--features build-release")
+          CARGO_BUILD_ARGS+=("--release")
+          # CARGO_BUILD_ARGS+=("--profile release-optmize-size")
+
+          RUSTFLAGS="${CARGO_RUSTFLAGS[@]}" cargo build ${CARGO_BUILD_ARGS[@]}
+
+      # - name: Build SmartDNS - make all
+      #   run: |
+      #     export CARGO_BUILD_ARGS="--target ${{ matrix.CARGO_TARGET }}"
+      #     set -x
+      #     make all -j$(nproc) WITH_UI=1
+      #     ls -l -R plugin/smartdns-ui/target/
+
       # - name: Build SmartDNS
       #   run: |
       #     # plugin/smartdns-ui/Makefile
