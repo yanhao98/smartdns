@@ -138,32 +138,16 @@ jobs:
         working-directory: plugin/smartdns-ui
         run: |
           CARGO_RUSTFLAGS=()
-          CARGO_RUSTFLAGS+=("-C linker=x86_64-linux-gnu-gcc") #
-          CARGO_RUSTFLAGS+=("-C target-feature=-crt-static")  # 是否使用 musl 库
+          CARGO_RUSTFLAGS+=("-C linker=${{ matrix.ENV_CC }}")
+          # CARGO_RUSTFLAGS+=("-C target-feature=-crt-static")  # 是否使用 musl 库
 
           CARGO_BUILD_ARGS=()
-          CARGO_BUILD_ARGS+=("--target x86_64-unknown-linux-gnu")
+          CARGO_BUILD_ARGS+=("--target ${{ matrix.CARGO_TARGET }}")
           CARGO_BUILD_ARGS+=("--features build-release")
           CARGO_BUILD_ARGS+=("--release")
           # CARGO_BUILD_ARGS+=("--profile release-optmize-size")
 
           RUSTFLAGS="${CARGO_RUSTFLAGS[@]}" cargo build ${CARGO_BUILD_ARGS[@]}
-
-      # - name: Build SmartDNS - make all
-      #   run: |
-      #     export CARGO_BUILD_ARGS="--target ${{ matrix.CARGO_TARGET }}"
-      #     set -x
-      #     make all -j$(nproc) WITH_UI=1
-      #     ls -l -R plugin/smartdns-ui/target/
-
-      # - name: Build SmartDNS
-      #   run: |
-      #     # plugin/smartdns-ui/Makefile
-      #     # CARGO_BUILD_PATH=target/ ->
-      #     # CARGO_BUILD_PATH=target/aarch64-unknown-linux-gnu/
-      #     sed -i "s|CARGO_BUILD_PATH=target/|CARGO_BUILD_PATH=target/${{ matrix.CARGO_TARGET }}/|" plugin/smartdns-ui/Makefile
-      #     make all -j$(nproc) WITH_UI=1
-      #     # make install DESTDIR=/tmp/artifacts
 
       - name: Prepare artifacts
         run: |
