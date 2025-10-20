@@ -1,0 +1,59 @@
+name: _上游同步
+
+on:
+  schedule:
+    - cron:  '0 7 * * 1,4'
+    # 定时计划：每周一和周四的 07:00 执行
+
+  workflow_dispatch:  # 点击 Github 仓库上的按钮可手动触发！
+    inputs:
+      sync_test_mode: # 手动运行工作流时添加一个布尔选项，方便配置测试模式
+        description: 'Fork 同步测试模式'
+        type: boolean
+        default: false
+
+# - https://github.com/lobehub/lobe-chat/blob/main/.github/workflows/sync.yml
+
+jobs:
+  sync_latest_from_upstream:
+    name: 从上游仓库同步最新提交
+    runs-on: ubuntu-latest
+
+    steps:
+    # 必需步骤
+    # 步骤 1: 运行 github 提供的标准检出操作
+    - name: 检出目标仓库
+      uses: actions/checkout@main
+      with:
+        # 可选：设置要检出的分支
+        # sync 操作无论如何都会检出你的 'target_sync_branch'
+        # ref:  my-branch
+        # 如果上游仓库是私有的则此项必需
+        persist-credentials: false
+
+    - run: git remote -v
+
+    - name: 同步上游更改
+      id: sync
+      uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
+      with:
+        target_sync_branch: master
+        target_repo_token: ${{ secrets.GITHUB_TOKEN }}
+        upstream_sync_branch: master
+        upstream_sync_repo: pymumu/smartdns
+        test_mode: ${{ inputs.sync_test_mode }}
+
+    - name: 显示 'has_new_commits' 的值
+      run: echo ${{ steps.sync.outputs.has_new_commits }}
+
+    - name: 发送同步提醒邮件
+      if: steps.sync.outputs.has_new_commits == 'true'
+      uses: dawidd6/action-send-mail@v5
+      with:
+        connection_url: ${{secrets.MAIL_CONNECTION}}
+        subject: 同步上游仓库更新提醒
+        to: i@oo1.dev
+        from: "GitHub Actions"
+        body: |
+          ${{ github.repository }} 检测到上游分支有新的更新。
+        priority: high

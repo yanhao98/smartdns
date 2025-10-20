@@ -1,0 +1,260 @@
+# GitHub Actions 工作流配置
+# 用于构建 SmartDNS 项目并发布 Docker 镜像
+
+name: CI 构建与发布
+
+# 触发工作流的事件
+on:
+  push:
+  workflow_dispatch:
+
+# 全局环境变量
+env:
+  TZ: Asia/Shanghai
+
+# 默认 shell 配置
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # 多平台构建作业
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # AMD64 架构配置
+          - ARCH: amd64
+            OPENSSL_TARGET: linux-x86_64
+            CROSS_PREFIX: x86_64-linux-gnu-
+            CARGO_TARGET: x86_64-unknown-linux-gnu
+          # ARM64 架构配置
+          - ARCH: arm64
+            OPENSSL_TARGET: linux-aarch64
+            CROSS_PREFIX: aarch64-linux-gnu-
+            APT_PKGS: gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+            CARGO_TARGET: aarch64-unknown-linux-gnu
+
+    env:
+      CACHE_PREFIX: H_0330_1535
+      OPENSSL_VER: 3.4.1
+      OPENSSL_DIR: /tmp/openssl/${{ matrix.OPENSSL_TARGET }}
+
+    steps:
+      - name: 📥 检出代码仓库
+        uses: actions/checkout@main
+
+      - name: 📦 安装系统依赖包
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: ${{ matrix.APT_PKGS }} build-essential perl libfindbin-libs-perl
+          version: ${{ env.CACHE_PREFIX }}-${{ matrix.ARCH }}-apt
+          execute_install_scripts: false
+
+      - name: 💾 检查 OpenSSL 缓存
+        id: cache-openssl
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.OPENSSL_DIR }}
+          key: ${{ env.CACHE_PREFIX }}-openssl-${{ matrix.ARCH }}-${{ env.OPENSSL_VER }}
+
+      - name: 🔍 验证 OpenSSL 二进制文件
+        if: steps.cache-openssl.outputs.cache-hit == 'true'
+        id: check-openssl
+        run: |
+          if [ -f "${{ env.OPENSSL_DIR }}/bin/openssl" ]; then
+            echo "openssl_exists=true" >> $GITHUB_OUTPUT
+            file ${{ env.OPENSSL_DIR }}/bin/openssl
+            ${{ env.OPENSSL_DIR }}/bin/openssl version -a || true
+          else
+            echo "openssl_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🔧 构建 OpenSSL
+        if: steps.cache-openssl.outputs.cache-hit != 'true' || steps.check-openssl.outputs.openssl_exists != 'true'
+        run: |
+          # 设置变量
+          OPENSSL_VER=${{ env.OPENSSL_VER }}
+          OPENSSL_TARGET=${{ matrix.OPENSSL_TARGET }}
+          OPENSSL_DIR=${{ env.OPENSSL_DIR }}
+          OPENSSL_BUILD_DIR=/tmp/build-openssl
+          CROSS_PREFIX=${{ matrix.CROSS_PREFIX }}
+          PKG_ARCH=${{ matrix.ARCH }}
+
+          # 创建构建目录并下载源码
+          mkdir -p $OPENSSL_BUILD_DIR
+          OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VER}/openssl-${OPENSSL_VER}.tar.gz"
+          curl -sSL $OPENSSL_URL | tar --strip-components=1 -zx -C $OPENSSL_BUILD_DIR
+
+          cd $OPENSSL_BUILD_DIR
+
+          # 配置 OpenSSL
+          CONFIGURE_ARGS=(
+            "--prefix=$OPENSSL_DIR"
+            "--cross-compile-prefix=$CROSS_PREFIX"
+            "no-shared"
+            "no-tests"
+            "${OPENSSL_TARGET}"
+          )
+          set -x
+          ./Configure "${CONFIGURE_ARGS[@]}"
+
+          # 构建并安装
+          MAKE_ARGS=("--silent")
+          make "${MAKE_ARGS[@]}" all -j$(nproc)
+          make "${MAKE_ARGS[@]}" install_sw
+
+      - name: 🚀 构建 SmartDNS
+        run: |
+          export CFLAGS="-I /tmp/openssl/${{ matrix.OPENSSL_TARGET }}/include"
+          export LDFLAGS="-L /tmp/openssl/${{ matrix.OPENSSL_TARGET }}/lib -L /tmp/openssl/${{ matrix.OPENSSL_TARGET }}/lib64"
+          BUILD_PKG_ARGS=(
+            "--platform linux"
+            "--arch ${{ matrix.ARCH }}"
+            "--cross-tool ${{ matrix.CROSS_PREFIX }}"
+          )
+          set -x
+          ldd --version
+          sh ./package/build-pkg.sh ${BUILD_PKG_ARGS[@]}
+          file src/smartdns || true
+      # https://github.com/actions/cache/blob/main/examples.md#rust---cargo
+      - name: ⚡️ 配置 Cargo 缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            plugin/smartdns-ui/target
+          key: ${{ env.CACHE_PREFIX }}-${{ runner.os }}-cargo-${{ matrix.ARCH }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            ${{ env.CACHE_PREFIX }}-${{ runner.os }}-cargo-${{ matrix.ARCH }}-
+            ${{ env.CACHE_PREFIX }}-${{ runner.os }}-cargo-
+            ${{ env.CACHE_PREFIX }}-${{ runner.os }}-
+
+      - name: 🦀 安装 Rust 工具链
+        run: |
+          if ! command -v rustup &>/dev/null; then
+            echo "Rust not found, installing..."
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          else
+            echo "Rust is already installed"
+          fi
+          # # Ensure cargo environment is sourced
+          # . "$HOME/.cargo/env"
+
+      - name: 🎨 构建 SmartDNS-UI 插件
+        working-directory: plugin/smartdns-ui
+        run: |
+          CARGO_LINKER=${{ matrix.CROSS_PREFIX }}gcc
+          CARGO_TARGET=${{ matrix.CARGO_TARGET }}
+
+          rustup target add $CARGO_TARGET
+
+          CARGO_RUSTFLAGS=(
+            "-C linker=$CARGO_LINKER"
+            # "-C target-feature=-crt-static"
+          )
+          CARGO_BUILD_ARGS=(
+            "--target $CARGO_TARGET"
+            "--features build-release"
+          )
+          if [ "${OPTIMIZE_SIZE:-0}" = "1" ]; then
+            CARGO_BUILD_ARGS+=("--profile release-optmize-size")
+          else
+            CARGO_BUILD_ARGS+=("--release")
+          fi
+          set -x
+          export RUSTFLAGS="${CARGO_RUSTFLAGS[@]}"
+          cargo build ${CARGO_BUILD_ARGS[@]}
+
+          if [ "${OPTIMIZE_SIZE:-0}" = "1" ]; then
+            du -sh target/$CARGO_TARGET/release-optmize-size/libsmartdns_ui.so
+            file target/$CARGO_TARGET/release-optmize-size/libsmartdns_ui.so
+          else
+            du -sh target/$CARGO_TARGET/release/libsmartdns_ui.so
+            file target/$CARGO_TARGET/release/libsmartdns_ui.so
+          fi
+
+      - name: 📦 准备构建产物
+        run: |
+          mkdir -p /tmp/artifacts
+          cp src/smartdns /tmp/artifacts
+          cp plugin/smartdns-ui/target/${{ matrix.CARGO_TARGET }}/release/libsmartdns_ui.so /tmp/artifacts
+          chmod +x /tmp/artifacts/*
+          set -x
+          file /tmp/artifacts/smartdns || true
+          file /tmp/artifacts/libsmartdns_ui.so || true
+
+          ldd /tmp/artifacts/smartdns || true
+          ldd /tmp/artifacts/libsmartdns_ui.so || true
+          # readelf -d /tmp/artifacts/smartdns || true
+          # readelf -d /tmp/artifacts/libsmartdns_ui.so || true
+          ls -l -R /tmp/artifacts
+
+      - name: 📤 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartdns-files-${{ matrix.ARCH }}
+          path: /tmp/artifacts
+
+  # Docker 镜像构建和发布
+  docker:
+    runs-on: ubuntu-latest
+    needs: build
+    env:
+      # https://github.com/docker/metadata-action/tree/v5/?tab=readme-ov-file#semver
+      # Event: push,     Ref: refs/head/main,       Tags: main
+      # Event: push tag, Ref: refs/tags/v1.2.3,     Tags: 1.2.3, 1.2, 1, latest
+      # Event: push tag, Ref: refs/tags/v2.0.8-rc1, Tags: 2.0.8-rc1
+      metadata-action-tags: |
+        type=ref,event=branch
+        type=semver,pattern={{version}}
+        type=semver,pattern={{major}}.{{minor}}
+        type=semver,pattern={{major}}
+
+    steps:
+      - name: 📥 检出 Dockerfile
+        uses: actions/checkout@main
+        with:
+          lfs: false
+          sparse-checkout: |
+            Dockerfile
+          sparse-checkout-cone-mode: false
+
+      - name: 📥 下载 SmartDNS 构建产物
+        uses: dawidd6/action-download-artifact@v9
+        with:
+          run_id: ${{ github.run_id }}
+          path: .
+      - run: ls -l -R .
+
+      - name: 📥 下载 SmartDNS-WebUI 构建产物
+        uses: dawidd6/action-download-artifact@v9
+        with:
+          repo: ${{ github.repository_owner }}/smartdns-webui
+          name: artifact-main # https://github.com/yanhao98/smartdns-webui/actions/workflows/_打包上传制品.yaml
+          workflow_search: true
+          path: webui-dist
+
+      - name: 🔑 登录 GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐳 构建并推送 Docker 镜像
+        uses: yanhao98/composite-actions/docker-build-push@main
+        with:
+          file: .github/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          load: false
+          meta_images: ghcr.io/${{ github.repository }}
+          meta_tags: ${{ env.metadata-action-tags }}
+          cache-from: type=gha,scope=${{ github.workflow }}
+          cache-to: type=gha,scope=${{ github.workflow }}
